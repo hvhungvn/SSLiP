@@ -1,4 +1,4 @@
 # SSLiP
-This folder includes subroutine for modified granular package of LAMMPS.
-It is modified based on LAMMPS source code June2022.
-The purpose of them is to include the modified Mindlin model proposed by Viet Hung Ho (NTNU).
+This folder includes subroutines for a modified granular package of LAMMPS.
+It is based on the June 2022 version of the LAMMPS source code.
+The purpose of these subroutines is to implement the modified Mindlin model proposed by Viet Hung Ho (NTNU).
