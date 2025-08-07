@@ -1,0 +1,135 @@
+### This LAMMPS script is written by VHHo (viet.h.ho@ntnu.no) ###
+### Slider on patterned surface ###
+### Simulation setup ###
+units micro
+dimension	3
+boundary	p p p
+atom_style	sphere
+processors * * 1
+
+### Geometry variable ###
+variable lat0 equal 1
+variable lat1 equal 3
+variable d0 equal 2
+variable d1 equal 10
+variable d2 equal 10000
+variable d3 equal 1
+variable ax equal v_lat1*sqrt(3)
+variable ay equal sqrt(3)
+variable az equal v_lat1/v_ax
+variable x1 equal 0
+variable y1 equal 0
+variable x2 equal 0.5
+variable y2 equal 1/6
+variable x3 equal 0
+variable y3 equal 1/3
+variable x4 equal 0.5
+variable y4 equal 0.5
+variable x5 equal 0 
+variable y5 equal 2/3
+variable x6 equal 0.5
+variable y6 equal 5/6
+variable den equal 2.2 #grams/cm^3
+variable V0 equal (1/6)*PI*(v_d0^3)
+variable V1 equal (1/6)*PI*(v_d1^3)
+variable V2 equal 10*(1/6)*PI*(v_d0^3)
+variable V3 equal (1/6)*PI*(v_d0^3) 
+variable mass1 equal v_den*v_V1  
+variable mass2 equal v_den*v_V2  
+variable mass3 equal v_den*v_V3  
+
+### Parameter for simulation ###
+# Units in Micro (see LAMMPS)
+variable K0 equal 10^7              #Spring stiffness between slider and support
+variable Kx equal 1.27*(10^7)       #Spring stiffness Kx
+variable Ky equal 1.27*(10^7)       #Spring stiffness Ky
+variable Kz equal 1.1*(10^8)        #Spring stiffness Kz
+variable E equal 100*(10^6)         #Young modulus
+variable PR equal 0.3               #Poisson's ratio
+variable Fn equal -1*(10^9)         #Applied normal load
+variable dt equal 0.00001           #times step
+variable lgv equal 1                #damping for langevin thermostat
+
+######### Geometry configuration setup. Creat surface particles (type 1), Slider (type 2) and Support (type 3) #######
+lattice   custom ${ax} &    
+  a1 1 0 0 &
+  a2 0 ${ay} 0 &
+  a3 0 0 ${az} &
+  basis ${x1} ${y1} 0 &
+  basis ${x2} ${y2} 0 &
+  basis ${x3} ${y3} 0 &
+  basis ${x4} ${y4} 0 &
+  basis ${x5} ${y5} 0 &
+  basis ${x6} ${y6} 0 &
+
+region box block -6000 6000 -6000 6000 -1000 11000 units box
+region substrate block -80 180 -60 60 0 0.1 units box 
+region slider block -0.5 0.5 -0.5 0.5 5005 5005.5 units box
+region support block 5099.5 5100.5 -0.5 0.5 5005 5005.5 units box
+
+create_box 3 box
+create_atoms 1 region substrate
+
+lattice sc 1
+
+create_atoms 2 region slider
+create_atoms 3 region support
+
+set type 1 diameter ${d1}
+set type 1 mass ${mass1}
+set type 2 diameter ${d2}
+set type 2 mass ${mass2}
+set type 3 diameter ${d3}
+set type 3 mass ${mass3}
+
+group substrate region substrate
+group slider region slider 
+group support region support
+group substrate_slider union substrate slider
+
+########## Potential contact model Hertz+modified Mindlin ########
+pair_style granular/m2         
+pair_coeff 1 1 hertz/material 0.00000001 0.001 ${PR} tangential mindlin NULL 0.1 0.01 damping viscoelastic   # E is small to neglect the interaction between particles.
+pair_coeff 2 2 hertz/material ${E} 0.001 ${PR} tangential mindlin NULL 0.1 0.01 damping viscoelastic
+pair_coeff 3 3 hertz/material ${E} 0.001 ${PR} tangential mindlin NULL 0.1 0.01 damping viscoelastic
+pair_coeff 1 2 hertz/material ${E} 0.001 ${PR} tangential mindlin NULL 0.1 0.01 damping viscoelastic
+comm_modify     vel yes
+neigh_modify    delay 0 every 2 check yes
+neigh_modify one 10000
+neigh_modify page 100000
+
+### Compute properties ###
+compute 1 slider com          # COM of slider
+compute 2 support com         # COM of support
+variable p0 equal "step"
+variable distance equal "c_2[1]-c_1[1]"       #distance/spring between slider and support
+thermo 10000
+thermo_style custom step c_1[1] c_1[2] c_1[3] c_2[1] c_2[2] c_2[3] v_distance
+
+####### Fix surface position #######
+fix subX substrate spring/self ${Kx} x       #terther particles in surface to its position x
+fix subY substrate spring/self ${Ky} y       #terther particles in surface to its position y
+fix subZ substrate spring/self ${Kz} z       #terther particles in surface to its position z
+fix add slider addforce 0 0 ${Fn} every 1    # applied normal load to slider
+
+### NVE Equilibrium ###  
+timestep ${dt}
+fix nve_1 substrate_slider nve
+fix T substrate_slider langevin 0 0 ${lgv} 6987532 angmom no omega no 
+dump D1 all custom 10000 Equi_*.dump id type diameter mass xu yu zu 
+run 1000000
+undump D1
+
+### NVE add spring between slider and support #####
+fix sp1 support spring couple slider ${K0} -5100 NULL NULL 0    # add spring between Silider and Support 
+dump D2 all custom 10000 add_*.dump id type diameter mass xu yu zu
+fix add1 all print 10 "${p0} ${distance}" file add_distance.txt screen no
+run 1000000
+undump D2
+unfix add1
+
+### PUlling support ###
+fix m1 support move linear 1 0 0 units box
+fix move1 all print 10 "${p0} ${distance}" file move_distance.txt screen no
+dump 1 all custom 10000 move_*.dump id type diameter mass xu yu zu fx fy fz
+run 10000000
